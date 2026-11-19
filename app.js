@@ -19,6 +19,7 @@
     const BUCKET = isRealBucket(CFG.kvdbBucket) ? CFG.kvdbBucket : null;
     const SUGGEST_BUCKET = isRealBucket(CFG.suggestionsBucket) ? CFG.suggestionsBucket : BUCKET;
     const FEEDBACK_URL = CFG.feedbackUrl || 'https://eitaa.com/ferstadeh';
+    const AVATAR_BASE = CFG.avatarBase || 'carbar/';
 
     // Old saves stored 1/10 of today's coin values; records without this flag get migrated once.
     const ECONOMY_VERSION = 2;
@@ -83,6 +84,7 @@
         user: { id: 'guest', first_name: 'کاربر مهمان', photo_url: null },
         globalScore: 0,
         totalEarned: 0,
+        savedAt: 0,        // آخرین زمان ذخیره؛ برای تشخیص نسخه‌ی جدیدتر بین گوشی و سرور
         progress: {},      // { catId: [solved level indexes] }
         levelStats: {},    // { catId: { index: { hints, stars } } }
         unlockedMedals: [],
@@ -178,6 +180,7 @@
             return JSON.stringify({
                 globalScore: S.globalScore,
                 totalEarned: S.totalEarned,
+                savedAt: S.savedAt,
                 economyVersion: ECONOMY_VERSION,
                 progress: S.progress,
                 levelStats: S.levelStats,
@@ -191,6 +194,7 @@
 
         save() {
             if (!this.ready) return;
+            S.savedAt = Date.now();
             store.set(this.key(), this.payload());
             if (!this.hasCloud()) return;
             this.pending = true;
@@ -202,8 +206,14 @@
             clearTimeout(this.timer);
             if (!this.pending || !this.ready || !this.hasCloud()) return;
             this.pending = false;
+            const retry = () => {
+                this.pending = true;
+                clearTimeout(this.timer);
+                this.timer = setTimeout(() => this.flush(), 15000);
+            };
             fetch(this.cloudUrl(), { method: 'PUT', body: this.payload(), keepalive: !!keepalive })
-                .catch(() => { this.pending = true; });
+                .then(res => { if (!res.ok) retry(); })
+                .catch(retry);
         },
 
         migrateEconomy(data, raw) {
@@ -229,6 +239,7 @@
 
             S.globalScore = Number(data.globalScore) || 0;
             S.totalEarned = typeof data.totalEarned === 'number' ? data.totalEarned : S.globalScore;
+            S.savedAt = Number(data.savedAt) || 0;
             if (upgrade) {
                 S.globalScore = upgrade.globalScore;
                 S.totalEarned = upgrade.totalEarned;
@@ -251,23 +262,71 @@
             if (upgrade) this.save();
         },
 
+        // پیشرفت نسخه‌ی قدیمی‌تر را در نسخه‌ی جدیدتر ادغام می‌کند. اگر چیزی عوض شد true برمی‌گرداند.
+        mergeProgress(win, lose) {
+            let changed = false;
+            const wp = win.progress && typeof win.progress === 'object' ? win.progress : (win.progress = {});
+            const lp = lose.progress && typeof lose.progress === 'object' ? lose.progress : {};
+            Object.keys(lp).forEach(cat => {
+                if (!Array.isArray(lp[cat])) return;
+                const cur = Array.isArray(wp[cat]) ? wp[cat] : (wp[cat] = []);
+                const have = new Set(cur);
+                lp[cat].forEach(i => { if (!have.has(i)) { cur.push(i); have.add(i); changed = true; } });
+            });
+            const ws = win.levelStats && typeof win.levelStats === 'object' ? win.levelStats : (win.levelStats = {});
+            const ls = lose.levelStats && typeof lose.levelStats === 'object' ? lose.levelStats : {};
+            Object.keys(ls).forEach(cat => {
+                const dst = ws[cat] && typeof ws[cat] === 'object' ? ws[cat] : (ws[cat] = {});
+                Object.keys(ls[cat] || {}).forEach(i => { if (!dst[i]) { dst[i] = ls[cat][i]; changed = true; } });
+            });
+            const wm = Array.isArray(win.unlockedMedals) ? win.unlockedMedals : (win.unlockedMedals = []);
+            (Array.isArray(lose.unlockedMedals) ? lose.unlockedMedals : []).forEach(m => { if (!wm.includes(m)) { wm.push(m); changed = true; } });
+            return changed;
+        },
+
         async load() {
-            let raw = null;
+            let cloudRaw = null;
             let cloudFailed = false;
             if (this.hasCloud()) {
                 try {
                     const res = await fetchWithTimeout(this.cloudUrl(), {}, 7000);
-                    if (res.ok) raw = await res.text();
+                    if (res.ok) cloudRaw = await res.text();
                     else if (res.status !== 404) cloudFailed = true;
                 } catch (e) {
                     cloudFailed = true;
                 }
             }
-            if (!raw) raw = store.get(this.key());
+            const localRaw = store.get(this.key());
+            const parse = r => {
+                if (!r) return null;
+                try { const d = JSON.parse(r); return d && typeof d === 'object' ? d : null; } catch (e) { return null; }
+            };
+            const cloudData = parse(cloudRaw);
+            const localData = parse(localRaw);
+
+            // هر کدام (سرور یا همین گوشی) جدیدتر ذخیره شده برنده است؛ اگر گوشی جدیدتر بود
+            // (مثلاً آپلود قبلی قطع شده) بعد از بارگذاری به سرور فرستاده می‌شود.
+            let raw;
+            let pushBack = false;
+            if (cloudRaw && !cloudData) {
+                raw = cloudRaw; // رکورد سرور خراب است؛ مثل قبل ذخیره قفل می‌شود تا رویش ننویسیم
+            } else if (cloudData && localData) {
+                const localNewer = (Number(localData.savedAt) || 0) > (Number(cloudData.savedAt) || 0);
+                const win = localNewer ? localData : cloudData;
+                const lose = localNewer ? cloudData : localData;
+                // سکه و تنظیمات از نسخه‌ی جدیدتر می‌آید، ولی مرحله‌ها/ستاره‌ها/مدال‌های دو نسخه ادغام می‌شود
+                const merged = this.mergeProgress(win, lose);
+                raw = merged ? JSON.stringify(win) : (localNewer ? localRaw : cloudRaw);
+                pushBack = localNewer || merged;
+            } else {
+                raw = cloudRaw || localRaw;
+                pushBack = !cloudRaw && !cloudFailed && !!localRaw && this.hasCloud();
+            }
 
             if (raw) {
                 try {
                     this.apply(JSON.parse(raw), raw);
+                    if (pushBack && this.ready) { this.pending = true; this.flush(); }
                 } catch (e) {
                     // corrupt record: keep saving locked so we don't overwrite it
                     console.error('saved data is unreadable, writes disabled', e);
@@ -697,7 +756,7 @@
     }
 
     function avatarSrc() {
-        if (S.settings.avatarId) return `Profile/${S.settings.avatarId}.jpg`;
+        if (S.settings.avatarId) return `${AVATAR_BASE}${S.settings.avatarId}.jpg`;
         const url = S.user.photo_url;
         const cached = readAvatarCache();
         if (cached && (!url || cached.src === url)) return cached.data;
@@ -773,7 +832,7 @@
             html += `<p class="avatar-section">${label}</p><div class="avatar-grid">`;
             (photos[key] || []).forEach(n => {
                 const id = `profile_${key}${n}`;
-                html += `<button type="button" class="avatar-opt ${cur === id ? 'is-on' : ''}" data-avatar="${id}" data-gender="${key.toLowerCase()}"><img src="Profile/${id}.jpg" alt="" loading="lazy" decoding="async" width="64" height="64"></button>`;
+                html += `<button type="button" class="avatar-opt ${cur === id ? 'is-on' : ''}" data-avatar="${id}" data-gender="${key.toLowerCase()}"><img src="${AVATAR_BASE}${id}.jpg" alt="" loading="lazy" decoding="async" width="64" height="64"></button>`;
             });
             html += '</div>';
         });
