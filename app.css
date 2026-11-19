@@ -243,6 +243,7 @@ body:not([data-screen="home"]) .anim-home { animation-play-state: paused; }
 }
 .avatar img { width: 100%; height: 100%; object-fit: cover; }
 .avatar svg { width: 68%; height: 68%; fill: rgba(255, 255, 255, .95); }
+.avatar .av-char, .avatar-opt .av-char { width: 100%; height: 100%; }
 .avatar.is-boy { background: linear-gradient(135deg, #0a84ff, #34c3ff); }
 .avatar.is-girl { background: linear-gradient(135deg, #ff2d78, #ff8fab); }
 .avatar.has-photo { background: #2a1c74; }
@@ -698,9 +699,10 @@ body:not([data-screen="home"]) .anim-home { animation-play-state: paused; }
     transition: transform .1s;
 }
 .gender:active { transform: scale(.96); }
-.gender svg { width: 46px; height: 46px; }
-.gender[data-gender="boy"] svg { fill: #4aa8ff; }
-.gender[data-gender="girl"] svg { fill: #ff6aa8; }
+.gender__ico { display: block; width: 52px; height: 52px; border-radius: 50%; overflow: hidden; border: 2px solid rgba(255, 255, 255, .5); }
+.gender[data-gender="boy"] .gender__ico { background: linear-gradient(135deg, #0a84ff, #34c3ff); }
+.gender[data-gender="girl"] .gender__ico { background: linear-gradient(135deg, #ff2d78, #ff8fab); }
+.gender svg { width: 100%; height: 100%; display: block; }
 .gender.is-on { border-color: var(--gold); background: rgba(255,200,61,.2); box-shadow: 0 3px 0 var(--gold-deep); }
 
 /* ---------- levels ---------- */
@@ -924,9 +926,9 @@ body[data-screen="suggest"] .tabbar { transform: translate3d(0, 140%, 0); opacit
     transition: color .2s, background-color .2s, transform .12s;
 }
 .tab:active { transform: scale(.92); }
-.tab .ei { font-size: 1.5rem; opacity: .7; transition: transform .25s var(--spring), opacity .2s; }
+.tab__ico { width: 26px; height: 26px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; opacity: .75; transition: transform .25s var(--spring), opacity .2s; }
 .tab.is-active { color: var(--gold-ink); background: linear-gradient(180deg, var(--gold-hi), var(--gold-deep)); box-shadow: 0 3px 0 var(--gold-dark); }
-.tab.is-active .ei { opacity: 1; transform: translate3d(0, -2px, 0) scale(1.1); }
+.tab.is-active .tab__ico { opacity: 1; stroke-width: 2.2; transform: translate3d(0, -2px, 0) scale(1.08); }
 .tab.has-dot::after { top: 4px; right: 22%; width: 11px; height: 11px; }
 
 /* ---------- modals ---------- */
