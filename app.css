@@ -4,8 +4,8 @@
 
 @font-face {
     font-family: "Arad";
-    src: url("fonts/AradVF.woff2") format("woff2-variations"), url("fonts/AradVF.woff2") format("woff2"),
-         url("fonts/AradVF.ttf") format("truetype-variations"), url("fonts/AradVF.ttf") format("truetype");
+    src: url("font/AradVF.woff2") format("woff2-variations"), url("font/AradVF.woff2") format("woff2"),
+         url("font/AradVF.ttf") format("truetype-variations"), url("font/AradVF.ttf") format("truetype");
     font-weight: 100 1000;
     font-style: normal;
     font-display: swap;
